@@ -4,83 +4,78 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 
-st.set_page_config(page_title="Pump AI Monitor", layout="wide")
+st.set_page_config(page_title="Plant Intelligence System", layout="wide")
 
 # --- GAUGE FUNCTION ---
 def create_gauge(value, title, max_val=100, is_health=False):
-    if is_health:
-        steps = [{'range': [0, 50], 'color': "#ff4b4b"}, {'range': [50, 80], 'color': "#ffa500"}, {'range': [80, 100], 'color': "#00cc96"}]
-    else:
-        steps = [{'range': [0, max_val], 'color': "#f0f2f6"}]
+    color = "#00cc96" if not is_health else "green"
+    steps = [
+        {'range': [0, 50], 'color': "#ff4b4b"}, 
+        {'range': [50, 80], 'color': "#ffa500"}, 
+        {'range': [80, 100], 'color': "#00cc96"}
+    ] if is_health else []
+    
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=round(value, 2),
-        title={'text': title, 'font': {'size': 18}},
+        title={'text': title, 'font': {'size': 16}},
         gauge={'axis': {'range': [0, max_val]}, 'bar': {'color': "#31333F"}, 'steps': steps}
     ))
-    fig.update_layout(height=220, margin=dict(l=20, r=20, t=40, b=20))
+    fig.update_layout(height=200, margin=dict(l=10, r=10, t=40, b=10))
     return fig
 
-# --- TABLE STYLING ---
-def style_incidents(row):
-    styles = [''] * len(row)
-    if row['vibration_mm_s'] > 4.5: styles[row.index.get_loc('vibration_mm_s')] = 'background-color: black; color: white'
-    if row['temp_c'] > 70: styles[row.index.get_loc('temp_c')] = 'background-color: red; color: white'
-    if row['efficiency_pct'] < 70: styles[row.index.get_loc('efficiency_pct')] = 'background-color: yellow; color: black'
-    if row.get('is_anomaly', False): 
-        styles[row.index.get_loc('Anomaly_Score')] = 'background-color: #FF69B4; color: white' 
-    return styles
-
-st.title("🛡️ Advanced AI Pump Monitoring")
-
 try:
-    # 1. Load Data
+    # 1. LOAD DATA
     df = pd.read_csv("pump_multi_300_anomaly.csv")
     df = df.ffill()
 
-    # --- GLOBAL ANOMALY CALCULATION ---
-    window = 10 
-    df['rolling_mean'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window, min_periods=1).mean())
-    df['rolling_std'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window, min_periods=1).std())
-    
-    df['Anomaly_Score'] = (df['vibration_mm_s'] - df['rolling_mean']) / df['rolling_std'].replace(0, np.nan)
-    df['Anomaly_Score'] = df['Anomaly_Score'].fillna(0)
-    df['is_anomaly'] = df['Anomaly_Score'].abs() > 3 
+    # --- 2. WHOLE PLANT OVERVIEW ---
+    st.title("🏭 Whole Plant Performance Overview")
+    avg_col1, avg_col2, avg_col3 = st.columns(3)
+    avg_col1.metric("Global Avg Health", f"{round(df['health_score'].mean(), 1)}%")
+    avg_col2.metric("Global Avg Efficiency", f"{round(df['efficiency_pct'].mean(), 1)}%")
+    avg_col3.metric("Global Avg Vibration", f"{round(df['vibration_mm_s'].mean(), 2)} mm/s")
+    st.divider()
 
-    # 2. Sidebar Filter
-    unique_sites = df['site'].unique()
-    selected_site = st.sidebar.selectbox("Select Plant", unique_sites)
+    # --- 3. SIDEBAR: PLANT SELECTION & POP-UPS ---
+    selected_site = st.sidebar.selectbox("Select Plant", df['site'].unique())
     site_data = df[df['site'] == selected_site]
     latest = site_data.iloc[-1]
 
-    # 3. Gauges
-    c1, c2, c3 = st.columns(3)
-    with c1: st.plotly_chart(create_gauge(latest['health_score'], "Health %", is_health=True), use_container_width=True)
-    with c2: st.plotly_chart(create_gauge(latest['efficiency_pct'], "Efficiency %"), use_container_width=True)
-    with c3: st.plotly_chart(create_gauge(latest['vibration_mm_s'], "Vibration (mm/s)", max_val=10), use_container_width=True)
+    # Pop-up Alerts for Selected Plant
+    if latest['vibration_mm_s'] > 4.5: st.toast(f"🚨 VIBRATION ALERT: {selected_site}", icon="⚠️")
+    if latest['temp_c'] > 70: st.toast(f"🔥 OVERHEAT: {selected_site}", icon="🔴")
+    if latest['efficiency_pct'] < 70: st.toast(f"📉 EFFICIENCY DROP: {selected_site}", icon="🟡")
 
-    st.divider()
-
-    # 4. INCIDENT & ANOMALY REPORT
-    st.subheader(f"📋 Intelligent Incident Report: {selected_site}")
+    # --- 4. INDEX LOOKUP (ROUND VIEW) ---
+    st.header(f"🔍 Record Lookup: {selected_site}")
+    max_idx = len(site_data) - 1
+    selected_idx = st.number_input(f"Enter Index Number (0 to {max_idx})", min_value=0, max_value=max_idx, value=max_idx)
     
-    incidents = site_data[
-        (site_data['vibration_mm_s'] > 4.5) | (site_data['temp_c'] > 70) | 
-        (site_data['efficiency_pct'] < 70) | (site_data['is_anomaly'] == True)
-    ].copy()
+    # Get data for that specific index
+    record = site_data.iloc[selected_idx]
+    
+    r1, r2, r3, r4, r5 = st.columns(5)
+    with r1: st.plotly_chart(create_gauge(record['health_score'], "Health %", is_health=True), use_container_width=True)
+    with r2: st.plotly_chart(create_gauge(record['efficiency_pct'], "Efficiency %"), use_container_width=True)
+    with r3: st.plotly_chart(create_gauge(record['temp_c'], "Temp °C", 100), use_container_width=True)
+    with r4: st.plotly_chart(create_gauge(record['pressure_bar'], "Pressure Bar", 10), use_container_width=True)
+    with r5: st.plotly_chart(create_gauge(record['vibration_mm_s'], "Vibration mm/s", 10), use_container_width=True)
 
-    if not incidents.empty:
-        display_cols = ['timestamp', 'pump_id', 'vibration_mm_s', 'temp_c', 'efficiency_pct', 'Anomaly_Score']
-        styled_df = incidents[display_cols].style.apply(style_incidents, axis=1)
-        st.dataframe(styled_df, use_container_width=True)
-        st.info("Legend: ⚫ Vibration Fail | 🔴 Overheat | 🟡 Efficiency | 💗 Pink: Statistical Anomaly")
-    else:
-        st.success("✅ System stable. No threshold breaches or statistical anomalies detected.")
-
-    # 5. Charts
+    # --- 5. DATA LOG & EXPORT ---
     st.divider()
-    st.subheader("Statistical Trends")
-    fig = px.line(site_data, x='timestamp', y=['vibration_mm_s', 'rolling_mean'], title="Vibration Anomaly Analysis")
-    st.plotly_chart(fig, use_container_width=True)
+    st.subheader(f"📊 Full Data Log & Export: {selected_site}")
+    
+    # Display table
+    st.dataframe(site_data, use_container_width=True)
+    
+    # CSV Download Button
+    csv = site_data.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download Plant Data as CSV",
+        data=csv,
+        file_name=f"{selected_site}_data.csv",
+        mime='text/csv',
+    )
 
 except Exception as e:
     st.error(f"Application Error: {e}")
