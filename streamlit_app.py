@@ -3,9 +3,9 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Plant Intelligence System", layout="wide")
+st.set_page_config(page_title="Multi-Alert Intelligence System", layout="wide")
 
-# --- GAUGE FUNCTION ---
+# --- ENHANCED GAUGE FUNCTION ---
 def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"):
     steps = [
         {'range': [0, 50], 'color': "#ff4b4b"}, 
@@ -15,14 +15,14 @@ def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"
     
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=round(value, 2),
-        title={'text': title, 'font': {'size': 15}},
+        title={'text': title, 'font': {'size': 14, 'color': 'gray'}},
         gauge={
-            'axis': {'range': [0, max_val]}, 
+            'axis': {'range': [0, max_val], 'tickcolor': "gray"}, 
             'bar': {'color': bar_color}, 
             'steps': steps
         }
     ))
-    fig.update_layout(height=180, margin=dict(l=10, r=10, t=40, b=10))
+    fig.update_layout(height=180, margin=dict(l=15, r=15, t=40, b=15))
     return fig
 
 try:
@@ -31,83 +31,89 @@ try:
     df = df.ffill()
 
     # --- 2. SIDEBAR NAVIGATION ---
-    st.sidebar.header("📍 Control Panel")
-    selected_site = st.sidebar.selectbox("Select Plant", df['site'].unique())
+    st.sidebar.header("🕹️ Control Room")
+    selected_site = st.sidebar.selectbox("Select Plant Location", df['site'].unique())
     site_data = df[df['site'] == selected_site].reset_index(drop=True)
     
     # --- 3. INDEX SELECTION ---
-    st.header(f"🔍 System Diagnostics: {selected_site}")
+    st.header(f"📊 Live Diagnostic: {selected_site}")
     max_idx = len(site_data) - 1
-    selected_idx = st.number_input(f"Enter Index Number (0 to {max_idx})", 
+    selected_idx = st.number_input(f"Inspect Data Point (Range: 0 - {max_idx})", 
                                    min_value=0, max_value=max_idx, value=max_idx)
     
     record = site_data.iloc[selected_idx]
 
-    # --- 4. MULTIPLE ALERT SECTION (Appears 1 by 1) ---
-    st.subheader("⚠️ Active Alerts")
+    # --- 4. MULTI-ALERT STACKING LOGIC ---
+    st.subheader("🚨 Active Alerts Center")
     
-    # Track if any issue was found
-    has_issue = False
+    active_issues = 0
 
-    # Temperature Alert (Red)
+    # TEMP ALERT (RED)
     if record['temp_c'] > 70:
-        st.error(f"🔴 **TEMP ALERT:** Temperature reached {record['temp_c']}°C at {selected_site}")
-        st.toast("Temperature Critical!", icon="🔴")
-        has_issue = True
+        st.error(f"🔴 **CRITICAL TEMP:** Overheat detected ({record['temp_c']}°C).")
+        st.toast("Temperature Critical!", icon="🔥")
+        active_issues += 1
 
-    # Vibration Alert (Black)
+    # VIBRATION ALERT (BLACK) - FIXED KEYWORD ARGUMENT HERE
     if record['vibration_mm_s'] > 4.5:
-        st.markdown(f'<div style="background-color:black;color:white;padding:10px;margin-bottom:10px;border-radius:5px;">⚫ <b>VIBRATION ALERT:</b> {record["vibration_mm_s"]} mm/s detected.</div>', unsafe_content_type=True)
-        st.toast("Vibration Warning!", icon="⚫")
-        has_issue = True
+        st.markdown(
+            f'<div style="background-color:black;color:white;padding:12px;margin-bottom:10px;border-radius:8px;border-left: 10px solid #ff4b4b;">'
+            f'⚫ <b>VIBRATION WARNING:</b> Abnormal movement ({record["vibration_mm_s"]} mm/s).</div>', 
+            unsafe_allow_html=True
+        )
+        st.toast("Vibration Detected!", icon="📳")
+        active_issues += 1
 
-    # Efficiency Alert (Yellow)
+    # EFFICIENCY ALERT (YELLOW)
     if record['efficiency_pct'] < 70:
-        st.warning(f"🟡 **EFFICIENCY ALERT:** Performance dropped to {record['efficiency_pct']}%")
-        st.toast("Efficiency Low!", icon="🟡")
-        has_issue = True
+        st.warning(f"🟡 **EFFICIENCY LOSS:** Pump performing at {record['efficiency_pct']}%.")
+        st.toast("Efficiency Drop!", icon="📉")
+        active_issues += 1
 
-    # Pressure Alert (Blue)
+    # PRESSURE ALERT (BLUE)
     if record['pressure_bar'] < 3.0:
-        st.info(f"🔵 **PRESSURE ALERT:** Low pressure detected ({record['pressure_bar']} bar)")
-        st.toast("Pressure Low!", icon="🔵")
-        has_issue = True
+        st.info(f"🔵 **LOW PRESSURE:** System pressure dropped to {record['pressure_bar']} bar.")
+        st.toast("Pressure Low!", icon="💧")
+        active_issues += 1
 
-    # Current Alert (Purple)
+    # CURRENT ALERT (PURPLE) - FIXED KEYWORD ARGUMENT HERE
     if record['current_a'] > 26:
-        st.markdown(f'<div style="background-color:purple;color:white;padding:10px;margin-bottom:10px;border-radius:5px;">🟣 <b>LOADING ALERT:</b> High current draw ({record["current_a"]} A)</div>', unsafe_content_type=True)
-        st.toast("Current Spike!", icon="🟣")
-        has_issue = True
+        st.markdown(
+            f'<div style="background-color:purple;color:white;padding:12px;margin-bottom:10px;border-radius:8px;border-left: 10px solid #ffffff;">'
+            f'🟣 <b>ABNORMAL LOADING:</b> Motor drawing {record["current_a"]} A.</div>', 
+            unsafe_allow_html=True
+        )
+        st.toast("Electrical Load High!", icon="⚡")
+        active_issues += 1
 
-    if not has_issue:
-        st.success(f"✅ All systems normal for {selected_site} at index {selected_idx}.")
+    if active_issues == 0:
+        st.success(f"✅ All systems at {selected_site} (Index {selected_idx}) are normal.")
 
-    # --- 5. GAUGES (6 TOTAL) ---
+    # --- 5. ROUND GAUGE DASHBOARD (6 GAUGES) ---
     st.divider()
     
-    # Calculate Utilization (Example: Current relative to a max of 35A)
-    utilization = (record['current_a'] / 35) * 100
+    utilization_val = min((record['current_a'] / 35) * 100, 100)
     
-    g_col1, g_col2, g_col3 = st.columns(3)
-    g_col4, g_col5, g_col6 = st.columns(3)
+    r1c1, r1c2, r1c3 = st.columns(3)
+    r2c1, r2c2, r2c3 = st.columns(3)
 
-    with g_col1:
-        st.plotly_chart(create_gauge(record['health_score'], "Health State %", is_health=True), use_container_width=True)
-    with g_col2:
-        st.plotly_chart(create_gauge(record['efficiency_pct'], "Efficiency %", bar_color="yellow"), use_container_width=True)
-    with g_col3:
-        st.plotly_chart(create_gauge(utilization, "Utilization %", bar_color="orange"), use_container_width=True)
-    with g_col4:
-        st.plotly_chart(create_gauge(record['temp_c'], "Temperature °C", 100, bar_color="red"), use_container_width=True)
-    with g_col5:
-        st.plotly_chart(create_gauge(record['pressure_bar'], "Pressure Bar", 10, bar_color="blue"), use_container_width=True)
-    with g_col6:
-        st.plotly_chart(create_gauge(record['vibration_mm_s'], "Vibration mm/s", 10, bar_color="black"), use_container_width=True)
+    with r1c1:
+        st.plotly_chart(create_gauge(record['health_score'], "HEALTH STATUS %", is_health=True), use_container_width=True)
+    with r1c2:
+        st.plotly_chart(create_gauge(record['efficiency_pct'], "EFFICIENCY %", bar_color="#ffa500"), use_container_width=True)
+    with r1c3:
+        st.plotly_chart(create_gauge(utilization_val, "UTILIZATION %", bar_color="#800080"), use_container_width=True)
+    with r2c1:
+        st.plotly_chart(create_gauge(record['temp_c'], "TEMPERATURE °C", 100, bar_color="#ff4b4b"), use_container_width=True)
+    with r2c2:
+        st.plotly_chart(create_gauge(record['pressure_bar'], "PRESSURE BAR", 10, bar_color="#1E90FF"), use_container_width=True)
+    with r2c3:
+        st.plotly_chart(create_gauge(record['vibration_mm_s'], "VIBRATION mm/s", 10, bar_color="black"), use_container_width=True)
 
-    # --- 6. DATA LOG ---
+    # --- 6. DATA TABLE ---
     st.divider()
-    st.subheader(f"📊 Raw Data Log: {selected_site}")
-    st.dataframe(site_data)
+    st.subheader(f"📋 Site History: {selected_site}")
+    st.dataframe(site_data, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Dashboard Error: {e}")
