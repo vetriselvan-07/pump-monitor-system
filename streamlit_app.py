@@ -42,11 +42,35 @@ try:
     selected_site = st.sidebar.selectbox("Select Plant Location", df['site'].unique())
     site_data = df[df['site'] == selected_site].reset_index(drop=True)
     
+    # --- TREND ANALYSIS SECTION ---
+    st.sidebar.divider()
+    st.sidebar.subheader("📈 Trend Settings")
+    trend_param = st.sidebar.selectbox(
+        "Select Parameter to Graph", 
+        ['vibration_mm_s', 'temp_c', 'pressure_bar', 'efficiency_pct', 'current_a', 'health_score']
+    )
+    
     max_idx = len(site_data) - 1
     selected_idx = st.number_input(f"Inspect Data Point (Range: 0 - {max_idx})", 
                                    min_value=0, max_value=max_idx, value=max_idx)
     
     record = site_data.iloc[selected_idx]
+
+    # --- TOP ROW: TREND CHART ---
+    st.subheader(f"📈 Historical Trend: {trend_param} at {selected_site}")
+    fig_trend = px.line(
+        site_data, 
+        x=site_data.index, 
+        y=trend_param,
+        title=f"Time Series Analysis of {trend_param}",
+        template="plotly_white",
+        line_shape="spline"
+    )
+    # Add a vertical line for the currently inspected point
+    fig_trend.add_vline(x=selected_idx, line_dash="dash", line_color="red", annotation_text="Selected Point")
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+    st.divider()
 
     st.subheader("🚨 Active Alerts Center")
     active_issues = []
