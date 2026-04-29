@@ -43,7 +43,7 @@ try:
     site_data = df[df['site'] == selected_site].reset_index(drop=True)
     
 
-    st.header(f"📊 Live Diagnostic: {selected_site}")
+    st.header(f"📊 LIVE DIAGNOSIS SYSTEM: {selected_site}")
     max_idx = len(site_data) - 1
     selected_idx = st.number_input(f"Inspect Data Point (Range: 0 - {max_idx})", 
                                    min_value=0, max_value=max_idx, value=max_idx)
