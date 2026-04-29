@@ -98,7 +98,7 @@ try:
     with r2c3: st.plotly_chart(create_gauge(record['vibration_mm_s'], "VIBRATION mm/s", 10, bar_color="black"), use_container_width=True)
 
     st.divider()
-    st.subheader("📋 Advanced Predictive Maintenance Report")
+    st.subheader("📋 Predictive Maintenance Report")
     
     fault_map = {
         "Thermal Overload": "High friction in bearings or cooling jacket blockage.",
