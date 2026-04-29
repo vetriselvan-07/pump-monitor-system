@@ -26,29 +26,35 @@ def style_incidents(row):
     if row['vibration_mm_s'] > 4.5: styles[row.index.get_loc('vibration_mm_s')] = 'background-color: black; color: white'
     if row['temp_c'] > 70: styles[row.index.get_loc('temp_c')] = 'background-color: red; color: white'
     if row['efficiency_pct'] < 70: styles[row.index.get_loc('efficiency_pct')] = 'background-color: yellow; color: black'
-    if row['is_anomaly']: styles[row.index.get_loc('Anomaly_Score')] = 'background-color: #FF69B4; color: white' # Pink for AI Detection
+    # Use .get() to avoid crash if column is missing
+    if row.get('is_anomaly', False): 
+        styles[row.index.get_loc('Anomaly_Score')] = 'background-color: #FF69B4; color: white' 
     return styles
 
 st.title("🛡️ Advanced AI Pump Monitoring")
 
 try:
+    # 1. Load Data
     df = pd.read_csv("pump_multi_300_anomaly.csv")
     df = df.ffill()
 
-    # --- ANOMALY DETECTION LOGIC (Rolling Z-Score) ---
-    window = 10 # 10-period rolling window
-    df['rolling_mean'] = df['vibration_mm_s'].rolling(window=window).mean()
-    df['rolling_std'] = df['vibration_mm_s'].rolling(window=window).std()
-    # Z-Score formula: (x - mean) / std
-    df['Anomaly_Score'] = (df['vibration_mm_s'] - df['rolling_mean']) / df['rolling_std']
-    df['is_anomaly'] = df['Anomaly_Score'].abs() > 3 # Threshold of 3 std deviations
+    # --- GLOBAL ANOMALY CALCULATION (Run this before filtering) ---
+    window = 10 
+    df['rolling_mean'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window, min_periods=1).mean())
+    df['rolling_std'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window, min_periods=1).std())
+    
+    # Calculate Z-Score safely (avoid division by zero)
+    df['Anomaly_Score'] = (df['vibration_mm_s'] - df['rolling_mean']) / df['rolling_std'].replace(0, np.nan)
+    df['Anomaly_Score'] = df['Anomaly_Score'].fillna(0) # Replace NaNs with 0
+    df['is_anomaly'] = df['Anomaly_Score'].abs() > 3 
 
-    # Sidebar
-    selected_site = st.sidebar.selectbox("Select Plant", df['site'].unique())
+    # 2. Sidebar Filter
+    unique_sites = df['site'].unique()
+    selected_site = st.sidebar.selectbox("Select Plant", unique_sites)
     site_data = df[df['site'] == selected_site]
     latest = site_data.iloc[-1]
 
-    # Gauges
+    # 3. Gauges
     c1, c2, c3 = st.columns(3)
     with c1: st.plotly_chart(create_gauge(latest['health_score'], "Health %", is_health=True), use_container_width=True)
     with c2: st.plotly_chart(create_gauge(latest['efficiency_pct'], "Efficiency %"), use_container_width=True)
@@ -56,10 +62,11 @@ try:
 
     st.divider()
 
-    # --- INCIDENT & ANOMALY REPORT ---
+    # 4. INCIDENT & ANOMALY REPORT
     st.subheader(f"📋 Intelligent Incident Report: {selected_site}")
     
     # Filter for Threshold fails OR AI Anomaly detection
+    # We use .copy() to ensure we aren't working on a slice
     incidents = site_data[
         (site_data['vibration_mm_s'] > 4.5) | (site_data['temp_c'] > 70) | 
         (site_data['efficiency_pct'] < 70) | (site_data['is_anomaly'] == True)
@@ -67,17 +74,18 @@ try:
 
     if not incidents.empty:
         display_cols = ['timestamp', 'pump_id', 'vibration_mm_s', 'temp_c', 'efficiency_pct', 'Anomaly_Score']
+        # Apply style only to existing columns
         styled_df = incidents[display_cols].style.apply(style_incidents, axis=1)
         st.dataframe(styled_df, use_container_width=True)
-        st.caption("Pink highlights in Anomaly_Score indicate sudden statistical deviations detected by the Z-Score method.")
+        st.info("Legend: ⚫ Vibration Fail | 🔴 Overheat | 🟡 Efficiency | 💗 Pink: Statistical Anomaly")
     else:
         st.success("✅ System stable. No threshold breaches or statistical anomalies detected.")
 
-    # --- ROLLING CHART ---
+    # 5. Charts
     st.divider()
-    st.subheader("Rolling Statistical Analysis (Anomaly Detection)")
-    fig_anom = px.line(site_data, x='timestamp', y=['vibration_mm_s', 'rolling_mean'], title="Vibration vs. Rolling Average")
-    st.plotly_chart(fig_anom, use_container_width=True)
+    st.subheader("Statistical Trends")
+    fig = px.line(site_data, x='timestamp', y=['vibration_mm_s', 'rolling_mean'], title="Vibration Anomaly Analysis")
+    st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Application Error: {e}")-
