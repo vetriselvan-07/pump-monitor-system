@@ -7,67 +7,67 @@ st.set_page_config(page_title="Pump Health Monitor", layout="wide")
 st.title("🌊 Industrial Pump Intelligence Dashboard")
 
 try:
-    # 1. Load and Clean Data
+    # 1. Load Data
     df = pd.read_csv("pump_multi_300_anomaly.csv")
     df = df.ffill()
 
-    # 2. Get Latest Data for Alerts
+    # 2. Get Latest Data
     latest = df.iloc[-1]
+    site_name = latest.get('site', 'Unknown Plant')
+    pump_id = latest.get('pump_id', 'Unknown Pump')
     
-    # 3. Sidebar: Plant Information
-    st.sidebar.header("📍 Plant Information")
-    st.sidebar.info(f"**Site:** {latest.get('site', 'N/A')}\n\n**Pump ID:** {latest.get('pump_id', 'N/A')}")
+    st.sidebar.header("📍 Current Location")
+    st.sidebar.info(f"Monitoring: **{site_name}**")
 
-    # 4. Custom Logic Alerts (The "Pop-ups")
-    st.subheader("⚠️ Real-Time Alerts")
-    
-    # Create columns for alerts to look organized
-    alert_col = st.columns(1)[0]
-    
+    # 3. Dynamic Alerts with Plant Info and "Info" Buttons
+    st.subheader(f"⚠️ Active Alerts for {site_name}")
+
+    # Vibration Alert
     if latest['vibration_mm_s'] > 4.5:
-        st.error(f"🚨 WARNING: High Vibration detected! ({latest['vibration_mm_s']} mm/s)")
-    
+        st.error(f"🚨 High Vibration at **{site_name}** ({latest['vibration_mm_s']} mm/s)")
+        with st.expander(f"ℹ️ View Plant Info for {site_name}"):
+            st.write(f"**Pump ID:** {pump_id}")
+            st.write(f"**Vibration Threshold:** 4.5 mm/s")
+            st.write(f"**Action:** Check bearing lubrication at {site_name}.")
+
+    # Temperature Alert
     if latest['temp_c'] > 70:
-        st.error(f"🔥 WARNING: Temperature Over Limit! ({latest['temp_c']}°C)")
-        
+        st.error(f"🔥 Overheat detected at **{site_name}** ({latest['temp_c']}°C)")
+        with st.expander(f"ℹ️ View Plant Info for {site_name}"):
+            st.write(f"**Pump ID:** {pump_id}")
+            st.write(f"**Current Temp:** {latest['temp_c']}°C (Limit: 70°C)")
+            st.write(f"**Location:** {site_name} Main Bay")
+
+    # Pressure Alert
     if latest['pressure_bar'] < 3.0:
-        st.warning(f"📉 WARNING: Low Pressure Drop! ({latest['pressure_bar']} bar)")
-        
-    if latest['efficiency_pct'] < 70:
-        st.info(f"⚙️ DEGRADATION: Efficiency below threshold ({latest['efficiency_pct']}%)")
-        
+        st.warning(f"📉 Low Pressure at **{site_name}** ({latest['pressure_bar']} bar)")
+        with st.expander(f"ℹ️ View Plant Info for {site_name}"):
+            st.write(f"**Pump ID:** {pump_id}")
+            st.write(f"**Status:** Cavitation Risk likely at {site_name}.")
+
+    # Current/Loading Alert
     if latest['current_a'] > 26:
-        st.toast("Abnormal Loading Detected!", icon="⚠️")
-        st.error(f"⚡ ABNORMAL LOADING: Current spike detected! ({latest['current_a']} A)")
+        st.error(f"⚡ Abnormal Loading at **{site_name}** ({latest['current_a']} A)")
+        with st.expander(f"ℹ️ View Plant Info for {site_name}"):
+            st.write(f"**Pump ID:** {pump_id}")
+            st.write(f"**Diagnostic:** Motor drawing excess current at {site_name}. Inspect electrical load.")
 
-    # 5. Dashboard Metrics (Cards)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Health Score", f"{latest['health_score']}%")
-    m2.metric("Vibration", f"{latest['vibration_mm_s']} mm/s")
-    m3.metric("Temperature", f"{latest['temp_c']}°C")
-    m4.metric("Efficiency", f"{latest['efficiency_pct']}%")
-
-    # 6. Charts
+    # 4. Visual Dashboard (KPIs)
     st.divider()
-    c1, c2 = st.columns(2)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Plant", site_name)
+    m2.metric("Vibration", f"{latest['vibration_mm_s']} mm/s")
+    m3.metric("Temp", f"{latest['temp_c']}°C")
+    m4.metric("Current", f"{latest['current_a']} A")
 
-    with c1:
-        st.subheader("Health Trend (Green/Orange/Red)")
-        fig1 = px.line(df, x=df.index, y='health_score', title="Health Score Trend")
-        # Color coding thresholds
-        fig1.add_hrect(y0=0, y1=50, fillcolor="red", opacity=0.2)
-        fig1.add_hrect(y0=50, y1=80, fillcolor="orange", opacity=0.2)
-        fig1.add_hrect(y0=80, y1=100, fillcolor="green", opacity=0.2)
-        st.plotly_chart(fig1, use_container_width=True)
-
-    with c2:
-        st.subheader("Operational Parameter Trends")
-        # Let user choose what to see
-        metric_choice = st.multiselect("Select Parameters", 
-                                      ['vibration_mm_s', 'temp_c', 'pressure_bar', 'current_a'],
-                                      default=['vibration_mm_s', 'temp_c'])
-        fig2 = px.line(df, x=df.index, y=metric_choice)
-        st.plotly_chart(fig2, use_container_width=True)
+    # 5. Health Trend Chart
+    st.subheader("Health Score Trend Analysis")
+    fig = px.line(df, x=df.index, y='health_score', title=f"Reliability Trend: {site_name}")
+    # Zones
+    fig.add_hrect(y0=0, y1=50, fillcolor="red", opacity=0.2, annotation_text="Critical")
+    fig.add_hrect(y0=50, y1=80, fillcolor="orange", opacity=0.2, annotation_text="Warning")
+    fig.add_hrect(y0=80, y1=100, fillcolor="green", opacity=0.2, annotation_text="Optimal")
+    st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"System Error: {e}")
+    st.error(f"Data Load Error: {e}")
