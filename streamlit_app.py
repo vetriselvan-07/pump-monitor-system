@@ -6,7 +6,7 @@ import numpy as np
 
 st.set_page_config(page_title="Multi-Alert Intelligence System", layout="wide")
 
-# --- ENHANCED GAUGE FUNCTION ---
+
 def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"):
     steps = [
         {'range': [0, 50], 'color': "#ff4b4b"}, 
@@ -27,23 +27,22 @@ def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"
     return fig
 
 try:
-    # 1. LOAD DATA
+   
     df = pd.read_csv("pump_multi_300_anomaly.csv")
     df = df.ffill()
 
-    # --- NEW: STATISTICAL ANOMALY LOGIC (Z-Score) ---
+  
     window = 10
     df['rolling_mean'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).mean())
     df['rolling_std'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).std())
     df['z_score'] = (df['vibration_mm_s'] - df['rolling_mean']) / df['rolling_std'].replace(0, np.nan)
     df['z_score'] = df['z_score'].fillna(0)
 
-    # --- 2. SIDEBAR NAVIGATION ---
     st.sidebar.header("🕹️ Control Room")
     selected_site = st.sidebar.selectbox("Select Plant Location", df['site'].unique())
     site_data = df[df['site'] == selected_site].reset_index(drop=True)
     
-    # --- 3. INDEX SELECTION ---
+
     st.header(f"📊 Live Diagnostic: {selected_site}")
     max_idx = len(site_data) - 1
     selected_idx = st.number_input(f"Inspect Data Point (Range: 0 - {max_idx})", 
@@ -51,40 +50,37 @@ try:
     
     record = site_data.iloc[selected_idx]
 
-    # --- 4. MULTI-ALERT STACKING LOGIC (With Z-Score) ---
     st.subheader("🚨 Active Alerts Center")
     active_issues = []
 
-    # TEMP ALERT
     if record['temp_c'] > 70:
         st.error(f"🔴 **CRITICAL TEMP:** Overheat detected ({record['temp_c']}°C).")
         st.toast("Temperature Critical!", icon="🔥")
         active_issues.append("High Temperature")
 
-    # VIBRATION THRESHOLD ALERT
     if record['vibration_mm_s'] > 4.5:
         st.markdown(f'<div style="background-color:black;color:white;padding:12px;margin-bottom:10px;border-radius:8px;border-left: 10px solid #ff4b4b;">⚫ <b>VIBRATION WARNING:</b> Abnormal movement ({record["vibration_mm_s"]} mm/s).</div>', unsafe_allow_html=True)
         st.toast("Vibration Detected!", icon="📳")
         active_issues.append("High Vibration (Threshold)")
 
-    # STATISTICAL ANOMALY (Z-Score)
+
     if abs(record['z_score']) > 3:
         st.markdown(f'<div style="background-color:orange;color:black;padding:12px;margin-bottom:10px;border-radius:8px;">🟠 <b>STATISTICAL ANOMALY:</b> Sudden Vibration Deviation (Z-Score: {round(record["z_score"], 2)}).</div>', unsafe_allow_html=True)
         active_issues.append("Statistical Anomaly (Z-Score)")
 
-    # EFFICIENCY ALERT
+ 
     if record['efficiency_pct'] < 70:
         st.warning(f"🟡 **EFFICIENCY LOSS:** Pump performing at {record['efficiency_pct']}%.")
         st.toast("Efficiency Drop!", icon="📉")
         active_issues.append("Low Efficiency")
 
-    # PRESSURE ALERT
+   
     if record['pressure_bar'] < 3.0:
         st.info(f"🔵 **LOW PRESSURE:** System pressure dropped to {record['pressure_bar']} bar.")
         st.toast("Pressure Low!", icon="💧")
         active_issues.append("Low Pressure")
 
-    # CURRENT ALERT
+    
     if record['current_a'] > 26:
         st.markdown(f'<div style="background-color:purple;color:white;padding:12px;margin-bottom:10px;border-radius:8px;border-left: 10px solid #ffffff;">🟣 <b>ABNORMAL LOADING:</b> Motor drawing {record["current_a"]} A.</div>', unsafe_allow_html=True)
         st.toast("Electrical Load High!", icon="⚡")
@@ -93,7 +89,7 @@ try:
     if not active_issues:
         st.success(f"✅ All systems at {selected_site} (Index {selected_idx}) are normal.")
 
-    # --- 5. ROUND GAUGE DASHBOARD ---
+
     st.divider()
     utilization_val = min((record['current_a'] / 35) * 100, 100)
     
@@ -107,11 +103,10 @@ try:
     with r2c2: st.plotly_chart(create_gauge(record['pressure_bar'], "PRESSURE BAR", 10, bar_color="#1E90FF"), use_container_width=True)
     with r2c3: st.plotly_chart(create_gauge(record['vibration_mm_s'], "VIBRATION mm/s", 10, bar_color="black"), use_container_width=True)
 
-    # --- 6. PREDICTIVE MAINTENANCE REPORTING ---
     st.divider()
     st.subheader("📋 Predictive Maintenance Report")
     
-    # Logic for maintenance recommendation
+
     rec = "No immediate action required. Continue routine monitoring."
     fault = "No significant fault progression detected."
     if "High Vibration (Threshold)" in active_issues or "Statistical Anomaly (Z-Score)" in active_issues:
@@ -154,7 +149,6 @@ Pump ID: {record.get('pump_id', 'Unknown')}
         mime="text/plain"
     )
 
-    # --- 7. DATA TABLE ---
     st.divider()
     st.subheader(f"📋 Site History: {selected_site}")
     st.dataframe(site_data, use_container_width=True)
