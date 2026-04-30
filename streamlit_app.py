@@ -6,7 +6,7 @@ import numpy as np
 from datetime import datetime
 
 # --- CONFIGURATION & STYLING ---
-st.set_page_config(page_title="Multi-Alert Intelligence System", layout="wide")
+st.set_page_config(page_title="Pump ID Intelligence System", layout="wide")
 
 def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"):
     steps = [
@@ -31,14 +31,15 @@ def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"
 # --- DATA ENGINE ---
 @st.cache_data
 def load_and_process_data():
-    # Load data
+    # Load your CSV - Ensure 'pump_id' column exists here
     df = pd.read_csv("pump_multi_300_anomaly.csv")
     df = df.ffill()
     
     # Statistical Calculations (Rolling Z-Score for Vibration)
     window = 10
-    df['rolling_mean'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).mean())
-    df['rolling_std'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).std())
+    # Grouping by 'pump_id' instead of 'site'
+    df['rolling_mean'] = df.groupby('pump_id')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).mean())
+    df['rolling_std'] = df.groupby('pump_id')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).std())
     df['z_score'] = (df['vibration_mm_s'] - df['rolling_mean']) / df['rolling_std'].replace(0, np.nan)
     df['z_score'] = df['z_score'].fillna(0)
     
@@ -48,39 +49,42 @@ def load_and_process_data():
 
 try:
     df = load_and_process_data()
-    all_pumps = sorted(df['site'].unique())
+    # Unique IDs for selection
+    all_pump_ids = sorted(df['pump_id'].unique())
 
-    st.title("📊 MULTI-ALERT INTELLIGENCE SYSTEM")
+    st.title("📊 PUMP ID INTELLIGENCE SYSTEM")
     
-    tab1, tab2 = st.tabs(["🌐 Fleet Comparison (101-104)", "🔍 Live Asset Diagnosis"])
+    tab1, tab2 = st.tabs(["🌐 Fleet Comparison (ID 101-104)", "🔍 Live Asset Diagnosis"])
 
     # --- TAB 1: FLEET COMPARISON ---
     with tab1:
         st.sidebar.header("🕹️ Global Control")
         
-        # Helper for your 100-series requirement
-        group_option = st.sidebar.radio("Selection Mode", ["Manual Select", "Auto-Group 100-Series"])
+        # Logic to handle your 101-104 range specifically
+        group_option = st.sidebar.radio("Selection Mode", ["Manual Select", "Compare 101-104 Range"])
         
-        if group_option == "Auto-Group 100-Series":
-            # Selects all pumps containing '10' (matches 101, 102, 103, 104)
-            selected_pumps = [p for p in all_pumps if '10' in str(p)]
+        if group_option == "Compare 101-104 Range":
+            # Selects any ID between 101 and 104 inclusive
+            selected_ids = [pid for pid in all_pump_ids if 101 <= int(pid) <= 104]
         else:
-            selected_pumps = st.sidebar.multiselect("Select Pumps", all_pumps, default=[all_pumps[0]])
+            selected_ids = st.sidebar.multiselect("Select Pump IDs", all_pump_ids, default=[all_pump_ids[0]])
         
-        if not selected_pumps:
-            st.warning("⚠️ Please select at least one pump in the sidebar.")
+        if not selected_ids:
+            st.warning("⚠️ Please select at least one Pump ID in the sidebar.")
         else:
-            comp_df = df[df['site'].isin(selected_pumps)].reset_index()
+            # Filter main dataframe by selected pump_ids
+            comp_df = df[df['pump_id'].isin(selected_ids)].reset_index()
 
-            st.subheader(f"📈 Performance Trends: {', '.join(map(str, selected_pumps))}")
+            st.subheader(f"📈 Performance Comparison for Pump IDs: {', '.join(map(str, selected_ids))}")
             metrics = ['vibration_mm_s', 'temp_c', 'current_a', 'pressure_bar', 'flow_m3h', 'efficiency_pct']
             
-            melted_df = comp_df.melt(id_vars=['index', 'site'], value_vars=metrics)
+            # Melt data using pump_id as the variable
+            melted_df = comp_df.melt(id_vars=['index', 'pump_id'], value_vars=metrics)
             fig_trends = px.line(
-                melted_df, x='index', y='value', color='site', 
-                facet_row='variable', height=900,
+                melted_df, x='index', y='value', color='pump_id', 
+                facet_row='variable', height=950,
                 template="plotly_dark",
-                labels={'index': 'Time Step', 'value': 'Reading'}
+                labels={'index': 'Time Step', 'value': 'Reading', 'pump_id': 'Pump ID'}
             )
             fig_trends.update_yaxes(matches=None)
             st.plotly_chart(fig_trends, use_container_width=True)
@@ -88,11 +92,11 @@ try:
             st.divider()
             st.subheader("⚠️ Comparative Degradation Zone")
             fig_health = px.scatter(
-                comp_df, x='index', y='health_score', color='site',
+                comp_df, x='index', y='health_score', color='pump_id',
                 size=comp_df['is_degraded'].map({True: 12, False: 4}),
                 symbol='is_degraded',
                 template="plotly_dark",
-                title="Larger 'X' markers indicate detected anomalies"
+                title="Health Trend Comparison (Larger 'X' indicates anomaly)"
             )
             st.plotly_chart(fig_health, use_container_width=True)
 
@@ -100,28 +104,27 @@ try:
     with tab2:
         st.sidebar.divider()
         st.sidebar.header("🔍 Asset Deep-Dive")
-        selected_site = st.sidebar.selectbox("Inspect Specific Unit", all_pumps)
-        site_data = df[df['site'] == selected_site].reset_index(drop=True)
+        selected_id = st.sidebar.selectbox("Inspect Specific Pump ID", all_pump_ids)
+        site_data = df[df['pump_id'] == selected_id].reset_index(drop=True)
         
         max_idx = len(site_data) - 1
-        selected_idx = st.number_input(f"Timeline Slider (0 - {max_idx})", 
+        selected_idx = st.number_input(f"Timeline Step (0 - {max_idx})", 
                                        min_value=0, max_value=max_idx, value=max_idx)
         
         record = site_data.iloc[selected_idx]
 
         # ALERT ENGINE
-        st.subheader(f"🚨 Active Status: {selected_site}")
+        st.subheader(f"🚨 Active Status: Pump ID {selected_id}")
         active_issues = []
         priority = "NORMAL"
 
-        # Logic for Alerts
         if record['temp_c'] > 70:
             st.error(f"🔴 CRITICAL TEMP: {record['temp_c']}°C")
             active_issues.append("Thermal Overload")
             priority = "CRITICAL"
 
         if record['vibration_mm_s'] > 4.5:
-            st.markdown(f'<div style="background-color:#ff4b4b;color:white;padding:10px;border-radius:5px;">⚫ VIBRATION WARNING: {record["vibration_mm_s"]} mm/s</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background-color:#ff4b4b;color:white;padding:10px;border-radius:5px;margin-bottom:10px;">⚫ VIBRATION WARNING: {record["vibration_mm_s"]} mm/s</div>', unsafe_allow_html=True)
             active_issues.append("Mechanical Instability")
             priority = "CRITICAL"
 
@@ -136,7 +139,7 @@ try:
             if priority == "NORMAL": priority = "MAINTENANCE"
 
         if not active_issues:
-            st.success(f"✅ Pump {selected_site} is operating within normal parameters.")
+            st.success(f"✅ Pump {selected_id} is operating within normal parameters.")
 
         # GAUGES
         st.divider()
@@ -153,27 +156,21 @@ try:
 
         # PREDICTIVE MAINTENANCE REPORT
         st.divider()
-        fault_map = {
-            "Thermal Overload": "Bearing friction or cooling failure.",
-            "Mechanical Instability": "Misalignment or impeller damage.",
-            "Performance Degradation": "Wear rings or cavitation issues.",
-            "Transient Anomaly": "Sudden debris or early-stage bearing pitting."
-        }
-        
         report_text = f"""--- PUMP DIAGNOSTIC REPORT ---
 TIMESTAMP: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-ASSET: {selected_site} | STATUS: {priority}
+PUMP ID: {selected_id} | STATUS: {priority}
 
 CURRENT METRICS:
 - Health: {record['health_score']}%
 - Operating Efficiency: {record['efficiency_pct']}%
 
 DIAGNOSED ISSUES:
-{chr(10).join([f"- {iss}: {fault_map.get(iss, 'Check mechanical alignment')}" for iss in active_issues]) if active_issues else "No faults detected."}
+{chr(10).join([f"- {iss}" for iss in active_issues]) if active_issues else "No faults detected."}
 """
         st.text_area("Maintenance Summary", report_text, height=200)
-        st.download_button("📥 Export Report", report_text, file_name=f"PdM_{selected_site}.txt")
+        st.download_button("📥 Export Report", report_text, file_name=f"PdM_ID_{selected_id}.txt")
         st.dataframe(site_data.tail(10), use_container_width=True)
 
 except Exception as e:
     st.error(f"Critical System Error: {e}")
+    st.info("Check if your CSV has a 'pump_id' column instead of 'site'.")
