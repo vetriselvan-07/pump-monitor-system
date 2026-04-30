@@ -39,9 +39,9 @@ try:
     df['z_score'] = df['z_score'].fillna(0)
 
     # --- TABS NAVIGATION ---
-    tab1, tab2 = st.tabs(["🔍 Live Diagnostic Center", "📊 Pump ID Comparison"])
+    tab1, tab2 = st.tabs(["🔍 Live Diagnostic Center", "📊 4-Pump Fleet Comparison"])
 
-    # --- PAGE 1: LIVE DIAGNOSTIC CENTER ---
+    # --- PAGE 1: LIVE DIAGNOSTIC CENTER (NO CHANGES) ---
     with tab1:
         st.sidebar.header("🕹️ Control Room")
         selected_site = st.sidebar.selectbox("Select Plant Location", df['site'].unique())
@@ -122,54 +122,80 @@ try:
         st.subheader(f"📋 Site History: {selected_site}")
         st.dataframe(site_data, use_container_width=True)
 
-    # --- PAGE 2: PUMP COMPARISON ---
+    # --- PAGE 2: UPDATED 4-PUMP COMPARISON ---
     with tab2:
-        st.header("📊 Multi-Pump Performance Comparison")
+        st.header("📊 Quad-Pump Fleet Analytics")
         
-        # Selection filters
+        # Site Selection for Comparison
+        comp_site = st.selectbox("Select Plant for 4-Pump Review", df['site'].unique(), key="quad_site")
+        
+        # Get and Clean IDs
+        df['pump_id'] = df['pump_id'].astype(str).str.strip()
+        site_pumps = sorted(df[df['site'] == comp_site]['pump_id'].unique())
+        
+        # Selection logic for the 4 pumps
         st.sidebar.divider()
-        st.sidebar.header("⚖️ Comparison Filters")
-        comp_site = st.sidebar.selectbox("Select Site for Comparison", df['site'].unique(), key="comp_site")
+        st.sidebar.subheader("⚖️ Comparison Controls")
         
-        # Get unique pump IDs for that site
-        available_pumps = df[df['site'] == comp_site]['pump_id'].unique()
-        selected_pumps = st.sidebar.multiselect("Select Pump IDs to Compare", available_pumps, default=available_pumps[:2])
+        # Auto-detect 101-104 or allow manual pick of 4
+        target_default = [p for p in site_pumps if any(num in p for num in ['101', '102', '103', '104'])]
+        
+        selected_4 = st.sidebar.multiselect(
+            "Select Exactly 4 Pumps", 
+            site_pumps, 
+            default=target_default if len(target_default) == 4 else site_pumps[:4]
+        )
 
-        if not selected_pumps:
-            st.warning("Please select at least one Pump ID from the sidebar.")
+        if len(selected_4) < 1:
+            st.warning("Please select pumps from the sidebar to begin comparison.")
         else:
-            # Filter data for selected site and pumps
-            comp_df = df[(df['site'] == comp_site) & (df['pump_id'].isin(selected_pumps))].reset_index()
+            # Filter Data
+            quad_df = df[(df['site'] == comp_site) & (df['pump_id'].isin(selected_4))].reset_index()
             
-            # Create a facet plot for all major parameters
-            metrics_to_plot = ['vibration_mm_s', 'temp_c', 'current_a', 'pressure_bar', 'flow_m3h', 'efficiency_pct']
+            # --- ROW 1: CORE METRICS OVER TIME ---
+            st.subheader("⏱️ Real-Time Parameter Tracking")
+            metrics = ['vibration_mm_s', 'temp_c', 'efficiency_pct', 'pressure_bar', 'current_a', 'flow_m3h']
             
-            # Melt data for long-format plotting
-            melted_df = comp_df.melt(id_vars=['index', 'pump_id'], value_vars=metrics_to_plot, 
-                                     var_name='Parameter', value_name='Value')
+            # Create a 2x3 grid of charts for high density
+            m_cols = st.columns(2)
+            for i, metric in enumerate(metrics):
+                with m_cols[i % 2]:
+                    fig = px.line(quad_df, x='index', y=metric, color='pump_id',
+                                 title=f"{metric.replace('_', ' ').upper()} Trends",
+                                 template="plotly_dark", height=300)
+                    fig.update_layout(margin=dict(l=0, r=0, t=40, b=0))
+                    st.plotly_chart(fig, use_container_width=True)
 
-            fig_comp = px.line(
-                melted_df, 
-                x='index', 
-                y='Value', 
-                color='pump_id', 
-                facet_row='Parameter',
-                height=1000,
-                template="plotly_dark",
-                labels={'index': 'Time Step', 'Value': 'Measurement', 'pump_id': 'Pump ID'},
-                title=f"Comparative Trends at {comp_site}"
-            )
-
-            # Improve layout: allow independent Y axes for different parameters
-            fig_comp.update_yaxes(matches=None)
-            fig_comp.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+            # --- ROW 2: SIDE-BY-SIDE HEALTH STATUS ---
+            st.divider()
+            st.subheader("🩺 Comparative Health & Risk Analysis")
             
-            st.plotly_chart(fig_comp, use_container_width=True)
+            h_cols = st.columns(len(selected_4))
+            for i, pid in enumerate(selected_4):
+                latest_rec = quad_df[quad_df['pump_id'] == pid].iloc[-1]
+                with h_cols[i]:
+                    st.metric(label=f"Pump {pid} Health", 
+                             value=f"{latest_rec['health_score']}%", 
+                             delta=f"{round(latest_rec['efficiency_pct'], 1)}% Eff")
+                    
+                    # Small gauge for individual health
+                    st.plotly_chart(create_gauge(latest_rec['health_score'], f"{pid} Condition", is_health=True), use_container_width=True)
 
-            # Statistics Table
-            st.subheader("📈 Aggregated Comparison (Averages)")
-            stats_df = comp_df.groupby('pump_id')[metrics_to_plot].mean().round(2)
-            st.table(stats_df)
+            # --- ROW 3: ANOMALY HEATMAP/SCATTER ---
+            st.divider()
+            st.subheader("🎯 Statistical Anomaly Distribution (Z-Score)")
+            fig_anomaly = px.scatter(quad_df, x='index', y='z_score', color='pump_id',
+                                    size=np.abs(quad_df['z_score']),
+                                    hover_data=['temp_c', 'vibration_mm_s'],
+                                    title="Z-Score Deviation across Fleet (Higher = More Unstable)",
+                                    template="plotly_dark")
+            fig_anomaly.add_hline(y=3, line_dash="dash", line_color="red", annotation_text="Critical Limit")
+            fig_anomaly.add_hline(y=-3, line_dash="dash", line_color="red")
+            st.plotly_chart(fig_anomaly, use_container_width=True)
+
+            # --- ROW 4: DATA TABLE ---
+            with st.expander("📂 View Comparison Raw Data"):
+                st.dataframe(quad_df.sort_values(by=['index', 'pump_id'], ascending=[False, True]), use_container_width=True)
 
 except Exception as e:
     st.error(f"Dashboard Error: {e}")
