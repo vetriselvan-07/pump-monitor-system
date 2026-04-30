@@ -26,10 +26,23 @@ def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"
     return fig
 
 try:
-    df = pd.read_csv("pump_multi_300_anomaly.csv")
-    df = df.ffill()
+    df_raw = pd.read_csv("pump_multi_300_anomaly.csv")
+    
+    # CLEANING GAPS: Forward fill missing values
+    df = df_raw.ffill().copy()
     df['pump_id'] = df['pump_id'].astype(str).str.strip()
     df['site'] = df['site'].astype(str).str.strip()
+
+    # DOWNLOAD OPTION FOR CLEANED DATA
+    st.sidebar.header("💾 Data Management")
+    cleaned_csv = df.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button(
+        label="📥 Download Cleaned CSV",
+        data=cleaned_csv,
+        file_name="pump_data_cleaned.csv",
+        mime="text/csv",
+        help="Download the version where gaps have been filled."
+    )
 
     window = 10
     df['rolling_mean'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).mean())
@@ -57,7 +70,7 @@ try:
         st.divider()
         
         max_idx = len(site_data) - 1
-        selected_idx = st.number_input(f"Inspect CSV Index (Range: 0 - {max_idx})", 
+        selected_idx = st.number_input(f"Inspect CSV Row Index (0 - {max_idx})", 
                                        min_value=0, max_value=max_idx, value=max_idx)
         
         record = site_data.iloc[selected_idx]
