@@ -31,13 +31,18 @@ def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"
 # --- DATA ENGINE ---
 @st.cache_data
 def load_and_process_data():
-    # Load your CSV - Ensure 'pump_id' column exists here
+    # Load your CSV
     df = pd.read_csv("pump_multi_300_anomaly.csv")
+    
+    # Standardize column name and clean whitespace
+    if 'site' in df.columns and 'pump_id' not in df.columns:
+        df = df.rename(columns={'site': 'pump_id'})
+    
+    df['pump_id'] = df['pump_id'].astype(str).str.strip()
     df = df.ffill()
     
     # Statistical Calculations (Rolling Z-Score for Vibration)
     window = 10
-    # Grouping by 'pump_id' instead of 'site'
     df['rolling_mean'] = df.groupby('pump_id')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).mean())
     df['rolling_std'] = df.groupby('pump_id')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).std())
     df['z_score'] = (df['vibration_mm_s'] - df['rolling_mean']) / df['rolling_std'].replace(0, np.nan)
@@ -49,7 +54,6 @@ def load_and_process_data():
 
 try:
     df = load_and_process_data()
-    # Unique IDs for selection
     all_pump_ids = sorted(df['pump_id'].unique())
 
     st.title("📊 PUMP ID INTELLIGENCE SYSTEM")
@@ -60,25 +64,23 @@ try:
     with tab1:
         st.sidebar.header("🕹️ Global Control")
         
-        # Logic to handle your 101-104 range specifically
         group_option = st.sidebar.radio("Selection Mode", ["Manual Select", "Compare 101-104 Range"])
         
         if group_option == "Compare 101-104 Range":
-            # Selects any ID between 101 and 104 inclusive
-            selected_ids = [pid for pid in all_pump_ids if 101 <= int(pid) <= 104]
+            # Search for the numbers 101, 102, 103, or 104 inside the ID strings
+            target_nums = ['101', '102', '103', '104']
+            selected_ids = [pid for pid in all_pump_ids if any(num in pid for num in target_nums)]
         else:
             selected_ids = st.sidebar.multiselect("Select Pump IDs", all_pump_ids, default=[all_pump_ids[0]])
         
         if not selected_ids:
             st.warning("⚠️ Please select at least one Pump ID in the sidebar.")
         else:
-            # Filter main dataframe by selected pump_ids
             comp_df = df[df['pump_id'].isin(selected_ids)].reset_index()
 
-            st.subheader(f"📈 Performance Comparison for Pump IDs: {', '.join(map(str, selected_ids))}")
+            st.subheader(f"📈 Performance Comparison: {', '.join(selected_ids)}")
             metrics = ['vibration_mm_s', 'temp_c', 'current_a', 'pressure_bar', 'flow_m3h', 'efficiency_pct']
             
-            # Melt data using pump_id as the variable
             melted_df = comp_df.melt(id_vars=['index', 'pump_id'], value_vars=metrics)
             fig_trends = px.line(
                 melted_df, x='index', y='value', color='pump_id', 
@@ -95,8 +97,7 @@ try:
                 comp_df, x='index', y='health_score', color='pump_id',
                 size=comp_df['is_degraded'].map({True: 12, False: 4}),
                 symbol='is_degraded',
-                template="plotly_dark",
-                title="Health Trend Comparison (Larger 'X' indicates anomaly)"
+                template="plotly_dark"
             )
             st.plotly_chart(fig_health, use_container_width=True)
 
@@ -113,8 +114,7 @@ try:
         
         record = site_data.iloc[selected_idx]
 
-        # ALERT ENGINE
-        st.subheader(f"🚨 Active Status: Pump ID {selected_id}")
+        st.subheader(f"🚨 Status: Pump ID {selected_id}")
         active_issues = []
         priority = "NORMAL"
 
@@ -139,38 +139,23 @@ try:
             if priority == "NORMAL": priority = "MAINTENANCE"
 
         if not active_issues:
-            st.success(f"✅ Pump {selected_id} is operating within normal parameters.")
+            st.success(f"✅ Pump {selected_id} is operating normally.")
 
-        # GAUGES
         st.divider()
-        util_val = min((record['current_a'] / 35) * 100, 100)
         c1, c2, c3 = st.columns(3)
         c4, c5, c6 = st.columns(3)
 
         with c1: st.plotly_chart(create_gauge(record['health_score'], "HEALTH %", is_health=True), use_container_width=True)
         with c2: st.plotly_chart(create_gauge(record['efficiency_pct'], "EFFICIENCY %", bar_color="#ffa500"), use_container_width=True)
-        with c3: st.plotly_chart(create_gauge(util_val, "UTILIZATION %", bar_color="#800080"), use_container_width=True)
+        with c3: st.plotly_chart(create_gauge(min((record['current_a']/35)*100, 100), "UTILIZATION %", bar_color="#800080"), use_container_width=True)
         with c4: st.plotly_chart(create_gauge(record['temp_c'], "TEMP °C", 100, bar_color="#ff4b4b"), use_container_width=True)
         with c5: st.plotly_chart(create_gauge(record['pressure_bar'], "PRESS BAR", 10, bar_color="#1E90FF"), use_container_width=True)
         with c6: st.plotly_chart(create_gauge(record['vibration_mm_s'], "VIB mm/s", 10, bar_color="white"), use_container_width=True)
 
-        # PREDICTIVE MAINTENANCE REPORT
         st.divider()
-        report_text = f"""--- PUMP DIAGNOSTIC REPORT ---
-TIMESTAMP: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-PUMP ID: {selected_id} | STATUS: {priority}
-
-CURRENT METRICS:
-- Health: {record['health_score']}%
-- Operating Efficiency: {record['efficiency_pct']}%
-
-DIAGNOSED ISSUES:
-{chr(10).join([f"- {iss}" for iss in active_issues]) if active_issues else "No faults detected."}
-"""
-        st.text_area("Maintenance Summary", report_text, height=200)
-        st.download_button("📥 Export Report", report_text, file_name=f"PdM_ID_{selected_id}.txt")
-        st.dataframe(site_data.tail(10), use_container_width=True)
+        report_text = f"--- PUMP DIAGNOSTIC REPORT ---\nTIMESTAMP: {datetime.now()}\nID: {selected_id}\nSTATUS: {priority}\n\nISSUES:\n" + "\n".join([f"- {i}" for i in active_issues])
+        st.text_area("Maintenance Summary", report_text, height=150)
+        st.download_button("📥 Export Report", report_text, file_name=f"PdM_{selected_id}.txt")
 
 except Exception as e:
-    st.error(f"Critical System Error: {e}")
-    st.info("Check if your CSV has a 'pump_id' column instead of 'site'.")
+    st.error(f"System Error: {e}")
