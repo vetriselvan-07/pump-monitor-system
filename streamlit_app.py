@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import numpy as np
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Multi-Alert Intelligence System", layout="wide")
+st.set_page_config(page_title="Multi-Plant Intelligence System", layout="wide")
 
 def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"):
     steps = [
@@ -30,8 +30,10 @@ try:
     # --- DATA ENGINE ---
     df = pd.read_csv("pump_multi_300_anomaly.csv")
     df = df.ffill()
+    df['pump_id'] = df['pump_id'].astype(str).str.strip()
+    df['site'] = df['site'].astype(str).str.strip()
 
-    # Calculations
+    # Calculations (Z-Score calculated per Site)
     window = 10
     df['rolling_mean'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).mean())
     df['rolling_std'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).std())
@@ -39,15 +41,30 @@ try:
     df['z_score'] = df['z_score'].fillna(0)
 
     # --- TABS NAVIGATION ---
-    tab1, tab2 = st.tabs(["🔍 Live Diagnostic Center", "📊 4-Pump Fleet Comparison"])
+    tab1, tab2 = st.tabs(["🔍 Live Diagnostic Center", "📊 Quad-Pump Fleet Comparison"])
 
-    # --- PAGE 1: LIVE DIAGNOSTIC CENTER (NO CHANGES) ---
+    # --- PAGE 1: LIVE DIAGNOSTIC CENTER (Now with Plant Selection) ---
     with tab1:
-        st.sidebar.header("🕹️ Control Room")
-        selected_site = st.sidebar.selectbox("Select Plant Location", df['site'].unique())
-        site_data = df[df['site'] == selected_site].reset_index(drop=True)
+        st.header("🔍 Global Asset Diagnosis")
         
-        st.header(f"📊 Live Diagnostic: {selected_site}")
+        # PLANT SELECTION (A or B)
+        col_plant, col_pump = st.columns(2)
+        with col_plant:
+            selected_site = st.selectbox("📍 Select Plant Location", sorted(df['site'].unique()), key="live_site_select")
+        
+        site_data_all = df[df['site'] == selected_site].reset_index(drop=True)
+        
+        with col_pump:
+            # Further filter by specific pump within that plant
+            available_pumps_live = sorted(site_data_all['pump_id'].unique())
+            selected_pump_live = st.selectbox("⛽ Select Specific Pump ID", available_pumps_live)
+            
+        # Final dataset for the gauges
+        site_data = site_data_all[site_data_all['pump_id'] == selected_pump_live].reset_index(drop=True)
+        
+        st.divider()
+        st.subheader(f"📊 Live Status: {selected_site} — Pump {selected_pump_live}")
+        
         max_idx = len(site_data) - 1
         selected_idx = st.number_input(f"Inspect Data Point (Range: 0 - {max_idx})", 
                                        min_value=0, max_value=max_idx, value=max_idx)
@@ -87,7 +104,7 @@ try:
             active_issues.append("Abnormal Loading")
 
         if not active_issues:
-            st.success(f"✅ All systems at {selected_site} (Index {selected_idx}) are normal.")
+            st.success(f"✅ All systems at {selected_site} - Pump {selected_pump_live} are normal.")
 
         st.divider()
         utilization_val = min((record['current_a'] / 35) * 100, 100)
@@ -103,41 +120,33 @@ try:
         with r2c3: st.plotly_chart(create_gauge(record['vibration_mm_s'], "VIBRATION mm/s", 10, bar_color="black"), use_container_width=True)
 
         st.divider()
-        st.subheader("📋 Predictive Maintenance Report")
+        st.subheader("📋 Site-Specific Maintenance Report")
         
-        rec = "No immediate action required. Continue routine monitoring."
+        rec = "No immediate action required."
         fault = "No significant fault progression detected."
-        if "High Vibration (Threshold)" in active_issues or "Statistical Anomaly (Z-Score)" in active_issues:
-            rec = "URGENT: Inspect bearings and check shaft alignment."
-            fault = "Progression to bearing failure or mechanical seal leakage likely."
+        if "High Vibration" in str(active_issues):
+            rec = "URGENT: Inspect bearings and check alignment."
+            fault = "Mechanical failure imminent."
         elif "High Temperature" in active_issues:
-            rec = "Check lubrication levels and cooling system efficiency."
-            fault = "Heat could lead to winding insulation failure."
+            rec = "Check lubrication and cooling."
+            fault = "Winding damage risk."
 
-        report_text = f"PREDICTIVE MAINTENANCE REPORT\n----------------------------\nPlant Location: {selected_site}\nRecord Index: {selected_idx}\nPump ID: {record.get('pump_id', 'Unknown')}\n\n1. CURRENT CONDITION:\n   Health Score: {record['health_score']}%\n   Efficiency: {record['efficiency_pct']}%\n\n2. DETECTED ANOMALIES:\n   {', '.join(active_issues) if active_issues else 'None'}\n\n3. LIKELY FAULT PROGRESSION:\n   {fault}\n\n4. MAINTENANCE RECOMMENDATION:\n   {rec}\n----------------------------"
-        st.text_area("Analysis Summary", report_text, height=250)
-        st.download_button(label="📥 Download Report", data=report_text, file_name=f"Report_{selected_site}_{selected_idx}.txt")
+        report_text = f"PREDICTIVE MAINTENANCE REPORT\n----------------------------\nSITE: {selected_site}\nPUMP ID: {selected_pump_live}\nRecord Index: {selected_idx}\n\n1. CONDITION:\n   Health: {record['health_score']}%\n   Efficiency: {record['efficiency_pct']}%\n\n2. ANOMALIES: {', '.join(active_issues) if active_issues else 'None'}\n\n3. ACTION: {rec}\n----------------------------"
+        st.text_area("Analysis Summary", report_text, height=200)
+        st.download_button(label=f"📥 Download {selected_site} Report", data=report_text, file_name=f"Report_{selected_site}_{selected_pump_live}.txt")
 
-        st.divider()
-        st.subheader(f"📋 Site History: {selected_site}")
-        st.dataframe(site_data, use_container_width=True)
-
-    # --- PAGE 2: UPDATED 4-PUMP COMPARISON ---
+    # --- PAGE 2: QUAD-PUMP COMPARISON ---
     with tab2:
         st.header("📊 Quad-Pump Fleet Analytics")
         
         # Site Selection for Comparison
-        comp_site = st.selectbox("Select Plant for 4-Pump Review", df['site'].unique(), key="quad_site")
+        comp_site = st.selectbox("Select Plant for 4-Pump Review", sorted(df['site'].unique()), key="quad_site_select")
         
-        # Get and Clean IDs
-        df['pump_id'] = df['pump_id'].astype(str).str.strip()
         site_pumps = sorted(df[df['site'] == comp_site]['pump_id'].unique())
         
-        # Selection logic for the 4 pumps
         st.sidebar.divider()
         st.sidebar.subheader("⚖️ Comparison Controls")
         
-        # Auto-detect 101-104 or allow manual pick of 4
         target_default = [p for p in site_pumps if any(num in p for num in ['101', '102', '103', '104'])]
         
         selected_4 = st.sidebar.multiselect(
@@ -149,53 +158,29 @@ try:
         if len(selected_4) < 1:
             st.warning("Please select pumps from the sidebar to begin comparison.")
         else:
-            # Filter Data
             quad_df = df[(df['site'] == comp_site) & (df['pump_id'].isin(selected_4))].reset_index()
             
-            # --- ROW 1: CORE METRICS OVER TIME ---
-            st.subheader("⏱️ Real-Time Parameter Tracking")
+            st.subheader(f"⏱️ Trend Analysis: {comp_site}")
             metrics = ['vibration_mm_s', 'temp_c', 'efficiency_pct', 'pressure_bar', 'current_a', 'flow_m3h']
             
-            # Create a 2x3 grid of charts for high density
             m_cols = st.columns(2)
             for i, metric in enumerate(metrics):
                 with m_cols[i % 2]:
                     fig = px.line(quad_df, x='index', y=metric, color='pump_id',
-                                 title=f"{metric.replace('_', ' ').upper()} Trends",
+                                 title=f"{metric.replace('_', ' ').upper()}",
                                  template="plotly_dark", height=300)
-                    fig.update_layout(margin=dict(l=0, r=0, t=40, b=0))
                     st.plotly_chart(fig, use_container_width=True)
 
-            # --- ROW 2: SIDE-BY-SIDE HEALTH STATUS ---
             st.divider()
-            st.subheader("🩺 Comparative Health & Risk Analysis")
-            
+            st.subheader(f"🩺 Condition Overview: {comp_site}")
             h_cols = st.columns(len(selected_4))
             for i, pid in enumerate(selected_4):
-                latest_rec = quad_df[quad_df['pump_id'] == pid].iloc[-1]
-                with h_cols[i]:
-                    st.metric(label=f"Pump {pid} Health", 
-                             value=f"{latest_rec['health_score']}%", 
-                             delta=f"{round(latest_rec['efficiency_pct'], 1)}% Eff")
-                    
-                    # Small gauge for individual health
-                    st.plotly_chart(create_gauge(latest_rec['health_score'], f"{pid} Condition", is_health=True), use_container_width=True)
-
-            # --- ROW 3: ANOMALY HEATMAP/SCATTER ---
-            st.divider()
-            st.subheader("🎯 Statistical Anomaly Distribution (Z-Score)")
-            fig_anomaly = px.scatter(quad_df, x='index', y='z_score', color='pump_id',
-                                    size=np.abs(quad_df['z_score']),
-                                    hover_data=['temp_c', 'vibration_mm_s'],
-                                    title="Z-Score Deviation across Fleet (Higher = More Unstable)",
-                                    template="plotly_dark")
-            fig_anomaly.add_hline(y=3, line_dash="dash", line_color="red", annotation_text="Critical Limit")
-            fig_anomaly.add_hline(y=-3, line_dash="dash", line_color="red")
-            st.plotly_chart(fig_anomaly, use_container_width=True)
-
-            # --- ROW 4: DATA TABLE ---
-            with st.expander("📂 View Comparison Raw Data"):
-                st.dataframe(quad_df.sort_values(by=['index', 'pump_id'], ascending=[False, True]), use_container_width=True)
+                latest_subset = quad_df[quad_df['pump_id'] == pid]
+                if not latest_subset.empty:
+                    latest_rec = latest_subset.iloc[-1]
+                    with h_cols[i]:
+                        st.metric(label=f"Pump {pid}", value=f"{latest_rec['health_score']}% Health")
+                        st.plotly_chart(create_gauge(latest_rec['health_score'], f"ID: {pid}", is_health=True), use_container_width=True)
 
 except Exception as e:
     st.error(f"Dashboard Error: {e}")
