@@ -27,14 +27,13 @@ def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"
 
 try:
     df_raw = pd.read_csv("pump_multi_300_anomaly.csv")
-    
     df = df_raw.dropna().copy()
     
     df['pump_id'] = df['pump_id'].astype(str).str.strip()
     df['site'] = df['site'].astype(str).str.strip()
 
     st.sidebar.header("💾 Data Management")
-    st.sidebar.info(f"Rows removed due to missing data: {len(df_raw) - len(df)}")
+    st.sidebar.info(f"Rows removed (Incomplete): {len(df_raw) - len(df)}")
     
     cleaned_csv = df.to_csv(index=False).encode('utf-8')
     st.sidebar.download_button(
@@ -43,12 +42,6 @@ try:
         file_name="pump_data_no_gaps.csv",
         mime="text/csv"
     )
-
-    window = 10
-    df['rolling_mean'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).mean())
-    df['rolling_std'] = df.groupby('site')['vibration_mm_s'].transform(lambda x: x.rolling(window=window).std())
-    df['z_score'] = (df['vibration_mm_s'] - df['rolling_mean']) / df['rolling_std'].replace(0, np.nan)
-    df['z_score'] = df['z_score'].fillna(0)
 
     tab1, tab2 = st.tabs(["🔍 Live Diagnostic Center", "📊 Quad-Pump Fleet Comparison"])
 
@@ -68,12 +61,19 @@ try:
         site_data = site_data_all[site_data_all['pump_id'] == selected_pump_live].reset_index(drop=True)
         
         st.divider()
-        
         max_idx = len(site_data) - 1
         selected_idx = st.number_input(f"Inspect Cleaned Row Index (0 - {max_idx})", 
                                        min_value=0, max_value=max_idx, value=max_idx)
         
         record = site_data.iloc[selected_idx]
+
+        # POP-UP ALERTS (Toasts)
+        if record['health_score'] < 70:
+            st.toast(f"Critical Health: {record['health_score']}% on Pump {selected_pump_live}", icon="🚨")
+        if record['temp_c'] > 80:
+            st.toast(f"Overheat Warning: {record['temp_c']}°C", icon="🔥")
+        if record['vibration_mm_s'] > 5:
+            st.toast(f"High Vibration: {record['vibration_mm_s']} mm/s", icon="📳")
 
         st.subheader(f"Status for Pump {selected_pump_live}")
         st.info(f"**Current Fault Type:** {record['fault_type']}")
@@ -93,17 +93,10 @@ try:
             util = min((record['current_a'] / 40) * 100, 100)
             st.plotly_chart(create_gauge(util, "UTILIZATION %", 100, bar_color="#FFA500"), use_container_width=True)
 
-        st.divider()
-        st.subheader("🚨 Logic Alerts")
-        if record['health_score'] < 70: st.error(f"Low Health: {record['health_score']}%")
-        if record['temp_c'] > 80: st.warning(f"High Temperature: {record['temp_c']}°C")
-        if record['vibration_mm_s'] > 5: st.warning(f"High Vibration: {record['vibration_mm_s']} mm/s")
-
     with tab2:
         st.header("📊 Quad-Pump Fleet Analytics")
         comp_site = st.selectbox("Select Plant for Trends", sorted(df['site'].unique()), key="quad_site_select")
         site_pumps = sorted(df[df['site'] == comp_site]['pump_id'].unique())
-        
         selected_4 = st.multiselect("Select Pumps to Compare", site_pumps, default=site_pumps[:4])
 
         if selected_4:
@@ -117,8 +110,22 @@ try:
                 with m_cols[i % 2]:
                     fig = px.line(quad_df, x='cleaned_index', y=metric, color='pump_id',
                                  title=f"TREND: {metric.upper()}",
-                                 labels={'cleaned_index': 'Cleaned Row Index'},
-                                 template="plotly_dark", height=300)
+                                 labels={'cleaned_index': 'Time Index'},
+                                 template="plotly_dark", height=350)
+                    
+                    # HIGHLIGHT DEGRADATION (Health < 70)
+                    degraded_zones = quad_df[quad_df['health_score'] < 70]
+                    if not degraded_zones.empty:
+                        for pump in selected_4:
+                            p_zone = degraded_zones[degraded_zones['pump_id'] == pump]
+                            for idx in p_zone['cleaned_index']:
+                                fig.add_vrect(
+                                    x0=idx-0.5, x1=idx+0.5, 
+                                    fillcolor="red", opacity=0.1, line_width=0,
+                                    annotation_text="Degradation" if i==0 else "", 
+                                    annotation_position="top left"
+                                )
+                    
                     st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
