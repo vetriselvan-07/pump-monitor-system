@@ -28,20 +28,20 @@ def create_gauge(value, title, max_val=100, is_health=False, bar_color="#31333F"
 try:
     df_raw = pd.read_csv("pump_multi_300_anomaly.csv")
     
-    # CLEANING GAPS: Forward fill missing values
-    df = df_raw.ffill().copy()
+    df = df_raw.dropna().copy()
+    
     df['pump_id'] = df['pump_id'].astype(str).str.strip()
     df['site'] = df['site'].astype(str).str.strip()
 
-    # DOWNLOAD OPTION FOR CLEANED DATA
     st.sidebar.header("💾 Data Management")
+    st.sidebar.info(f"Rows removed due to missing data: {len(df_raw) - len(df)}")
+    
     cleaned_csv = df.to_csv(index=False).encode('utf-8')
     st.sidebar.download_button(
         label="📥 Download Cleaned CSV",
         data=cleaned_csv,
-        file_name="pump_data_cleaned.csv",
-        mime="text/csv",
-        help="Download the version where gaps have been filled."
+        file_name="pump_data_no_gaps.csv",
+        mime="text/csv"
     )
 
     window = 10
@@ -70,12 +70,12 @@ try:
         st.divider()
         
         max_idx = len(site_data) - 1
-        selected_idx = st.number_input(f"Inspect CSV Row Index (0 - {max_idx})", 
+        selected_idx = st.number_input(f"Inspect Cleaned Row Index (0 - {max_idx})", 
                                        min_value=0, max_value=max_idx, value=max_idx)
         
         record = site_data.iloc[selected_idx]
 
-        st.subheader(f"Status for Pump {selected_pump_live} (Index {selected_idx})")
+        st.subheader(f"Status for Pump {selected_pump_live}")
         st.info(f"**Current Fault Type:** {record['fault_type']}")
 
         r1 = st.columns(4)
@@ -108,16 +108,16 @@ try:
 
         if selected_4:
             quad_df = df[(df['site'] == comp_site) & (df['pump_id'].isin(selected_4))].copy()
-            quad_df['csv_index'] = quad_df.index
+            quad_df['cleaned_index'] = range(len(quad_df))
             
             metrics = ['flow_m3h', 'pressure_bar', 'vibration_mm_s', 'temp_c', 'current_a', 'efficiency_pct', 'health_score']
             
             m_cols = st.columns(2)
             for i, metric in enumerate(metrics):
                 with m_cols[i % 2]:
-                    fig = px.line(quad_df, x='csv_index', y=metric, color='pump_id',
+                    fig = px.line(quad_df, x='cleaned_index', y=metric, color='pump_id',
                                  title=f"TREND: {metric.upper()}",
-                                 labels={'csv_index': 'CSV Row Index'},
+                                 labels={'cleaned_index': 'Cleaned Row Index'},
                                  template="plotly_dark", height=300)
                     st.plotly_chart(fig, use_container_width=True)
 
