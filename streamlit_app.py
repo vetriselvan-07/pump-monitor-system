@@ -105,28 +105,55 @@ try:
             st.plotly_chart(create_gauge(util, "UTILIZATION %", 100, bar_color="#FFA500"), use_container_width=True)
 
     with tab2:
+       with tab2:
         st.header("📊 Quad-Pump Fleet Analytics")
         comp_site = st.selectbox("Select Plant for Trends", sorted(df['site'].unique()), key="qsite")
+        
+        # 1. Get all available pumps at this site
         site_pumps = sorted(df[df['site'] == comp_site]['pump_id'].unique())
-        selected_4 = st.multiselect("Select Pumps", site_pumps, default=site_pumps[:4])
+        
+        # 2. Set default selection to 101, 102, 103, 104 if they exist
+        target_ids = ['101', '102', '103', '104']
+        default_selection = [p for p in target_ids if p in site_pumps]
+        
+        # If the target IDs aren't found, just grab the first 4 available
+        if not default_selection:
+            default_selection = site_pumps[:4]
+
+        selected_4 = st.multiselect("Select Pumps to Compare", site_pumps, default=default_selection)
 
         if selected_4:
+            # Filter data for the selected pumps
             quad_df = df[(df['site'] == comp_site) & (df['pump_id'].isin(selected_4))].copy()
-            quad_df['idx'] = range(len(quad_df))
+            
+            # --- CRITICAL: Create a synchronized index for the X-axis ---
+            # This ensures that 'Reading 1' for Pump 101 aligns with 'Reading 1' for Pump 102
+            quad_df['reading_no'] = quad_df.groupby('pump_id').cumcount()
             
             metrics = ['flow_m3h', 'pressure_bar', 'vibration_mm_s', 'temp_c', 'current_a', 'efficiency_pct', 'health_score']
+            
+            # Display metrics in two columns
             m_cols = st.columns(2)
             for i, metric in enumerate(metrics):
                 with m_cols[i % 2]:
-                    fig = px.line(quad_df, x='idx', y=metric, color='pump_id', title=f"TREND: {metric.upper()}", template="plotly_dark", height=350)
+                    # The 'color' parameter creates the multi-line effect in one chart
+                    fig = px.line(
+                        quad_df, 
+                        x='reading_no', 
+                        y=metric, 
+                        color='pump_id', 
+                        title=f"MULTI-PUMP TREND: {metric.upper()}",
+                        labels={'reading_no': 'Time (Sequence of Readings)', metric: metric.replace('_', ' ').title()},
+                        template="plotly_dark", 
+                        height=350
+                    )
                     
-                    # HIGHLIGHT DEGRADATION (Health < 70)
+                    # Add anomaly highlighting
                     degraded = quad_df[quad_df['health_score'] < 70]
                     if not degraded.empty:
-                        for d_idx in degraded['idx'].unique():
-                            fig.add_vrect(x0=d_idx-0.5, x1=d_idx+0.5, fillcolor="red", opacity=0.1, line_width=0)
+                        for d_idx in degraded['reading_no'].unique():
+                            fig.add_vrect(x0=d_idx-0.5, x1=d_idx+0.5, fillcolor="red", opacity=0.05, line_width=0)
                     
                     st.plotly_chart(fig, use_container_width=True)
-
 except Exception as e:
     st.error(f"Dashboard Error: {e}")
